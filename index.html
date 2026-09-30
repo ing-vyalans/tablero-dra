@@ -1,0 +1,920 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gestor de Tareas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --black:#111111;
+    --white:#ffffff;
+    --gray-50:#fafafa;
+    --gray-100:#f5f5f5;
+    --gray-200:#e5e5e5;
+    --gray-300:#cacacb;
+    --gray-500:#707072;
+    --gray-700:#39393b;
+    --orange:#d43f00;
+    --orange-bg:#fff0e6;
+    --green:#007d48;
+    --green-bg:#e5f4ec;
+    --red:#d30005;
+    --red-bg:#fdeaea;
+    --radius-pill:30px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:"Helvetica Neue",Helvetica,"Inter",Arial,sans-serif;
+    font-size:16px;line-height:1.5;color:var(--black);background:var(--white);
+    -webkit-font-smoothing:antialiased;min-height:100vh;display:flex;flex-direction:column;
+  }
+  button,input,select,textarea{font:inherit;color:inherit}
+  button{cursor:pointer;background:none;border:none}
+  .display{font-family:"Anton","Futura Condensed ExtraBold",Impact,sans-serif;font-weight:400;text-transform:uppercase;line-height:.92;letter-spacing:.005em}
+  .wrap{width:100%;max-width:1440px;margin:0 auto;padding:0 48px}
+
+  /* ---------- Top bar ---------- */
+  .topbar{background:var(--gray-100);font-size:12px;font-weight:500}
+  .topbar-in{display:flex;justify-content:space-between;align-items:center;height:36px;gap:12px}
+  .topbar-links{display:flex;gap:10px;align-items:center}
+  .topbar-links button{font-size:12px;font-weight:500}
+  .topbar-links button:hover{color:var(--gray-500)}
+
+  /* ---------- Header ---------- */
+  .header{position:sticky;top:0;z-index:20;background:var(--white);border-bottom:1px solid transparent;transition:border-color .2s}
+  .header.scrolled{border-bottom-color:var(--gray-200)}
+  .header-in{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;height:64px}
+  .brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--black);font-size:26px}
+  .brand-mark{width:34px;height:34px;border-radius:50%;background:var(--black);display:grid;place-items:center}
+  .nav{display:flex;gap:4px}
+  .nav a{position:relative;text-decoration:none;color:var(--black);font-weight:500;padding:20px 14px}
+  .nav a::after{content:"";position:absolute;left:14px;right:14px;bottom:12px;height:2px;background:var(--black);transform:scaleX(0);transition:transform .2s}
+  .nav a:hover::after,.nav a.active::after{transform:scaleX(1)}
+  .header-cta{justify-self:end}
+
+  /* ---------- Buttons ---------- */
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--black);color:var(--white);
+    border:1.5px solid var(--black);border-radius:var(--radius-pill);padding:12px 26px;font-weight:500;transition:background .15s,border-color .15s,color .15s;white-space:nowrap}
+  .btn:hover{background:var(--gray-700);border-color:var(--gray-700)}
+  .btn-outline{background:var(--white);color:var(--black);border-color:var(--gray-300)}
+  .btn-outline:hover{background:var(--white);border-color:var(--black)}
+  .btn-sm{padding:8px 18px;font-size:15px}
+  .btn-danger{background:var(--red);border-color:var(--red)}
+  .btn-danger:hover{background:#a80004;border-color:#a80004}
+  .link-btn{font-weight:500;text-decoration:underline;text-underline-offset:3px;font-size:14px}
+  .link-btn:hover{color:var(--gray-500)}
+
+  /* ---------- Hero ---------- */
+  .hero{padding-top:56px;padding-bottom:40px}
+  .kicker{font-weight:500;font-size:16px;margin-bottom:12px}
+  .hero-title{font-size:clamp(56px,9vw,112px)}
+  .hero-sub{margin-top:18px;max-width:560px;font-size:18px;color:var(--gray-700)}
+  .hero-actions{margin-top:28px;display:flex;gap:12px;flex-wrap:wrap}
+
+  /* ---------- Stats ---------- */
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:32px}
+  .stat{background:var(--gray-100);padding:22px 22px 18px;text-align:left;border:2px solid transparent;border-radius:4px;transition:border-color .15s,background .15s}
+  .stat:hover{background:var(--gray-200)}
+  .stat.active{border-color:var(--black);background:var(--white)}
+  .stat-num{font-family:"Anton",Impact,sans-serif;font-size:48px;line-height:1}
+  .stat-label{margin-top:8px;font-size:14px;font-weight:500;color:var(--gray-500);display:flex;align-items:center;gap:8px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--gray-300)}
+  .dot.st-prog{background:var(--orange)} .dot.st-done{background:var(--green)} .dot.st-late{background:var(--red)} .dot.st-all{background:var(--black)}
+
+  /* ---------- Toolbar ---------- */
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .search{position:relative;flex:1 1 260px;max-width:420px}
+  .search svg{position:absolute;left:16px;top:50%;transform:translateY(-50%);pointer-events:none}
+  .field-pill{width:100%;background:var(--gray-100);border:1.5px solid transparent;border-radius:var(--radius-pill);padding:11px 18px;outline:none;transition:border-color .15s,background .15s}
+  .search .field-pill{padding-left:46px}
+  .field-pill:hover{background:var(--gray-200)}
+  .field-pill:focus{border-color:var(--black);background:var(--white)}
+  select.field-pill{appearance:none;-webkit-appearance:none;padding-right:42px;cursor:pointer;width:auto;min-width:170px;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23111' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 16px center}
+  .result-line{display:flex;justify-content:space-between;align-items:center;margin:26px 0 8px;font-size:14px;color:var(--gray-500);gap:12px}
+
+  /* ---------- Table ---------- */
+  .table{width:100%;border-collapse:collapse}
+  .table th{text-align:left;font-size:13px;font-weight:500;color:var(--gray-500);padding:14px 12px;border-bottom:1px solid var(--black)}
+  .table td{padding:18px 12px;border-bottom:1px solid var(--gray-200);vertical-align:middle;font-size:15px}
+  .table tbody tr{transition:background .12s}
+  .table tbody tr:hover{background:var(--gray-50)}
+  .table tr.is-late td:first-child{box-shadow:inset 3px 0 0 var(--red)}
+  .t-title{font-weight:500;font-size:16px}
+  .t-desc{color:var(--gray-500);font-size:14px;margin-top:2px;max-width:460px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  .person{display:flex;align-items:center;gap:10px}
+  .avatar{width:32px;height:32px;border-radius:50%;background:var(--black);color:var(--white);display:grid;place-items:center;font-size:12px;font-weight:700;flex-shrink:0;letter-spacing:.02em}
+  .muted{color:var(--gray-500)}
+  .date{white-space:nowrap}
+  .tag-late{display:inline-block;margin-left:8px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--red)}
+  select.status{appearance:none;-webkit-appearance:none;border:none;border-radius:var(--radius-pill);padding:7px 34px 7px 14px;font-size:13px;font-weight:600;cursor:pointer;outline:none;
+    background-repeat:no-repeat;background-position:right 12px center;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23111' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")}
+  select.status:focus-visible{box-shadow:0 0 0 2px var(--black)}
+  .st-pend{background-color:var(--gray-100);color:var(--black)}
+  .st-prog{background-color:var(--orange-bg);color:var(--orange)}
+  .st-done{background-color:var(--green-bg);color:var(--green)}
+  .st-canc{background-color:var(--red-bg);color:var(--red)}
+  .actions{text-align:right;white-space:nowrap}
+  .icon-btn{width:38px;height:38px;border-radius:50%;display:inline-grid;place-items:center;transition:background .15s}
+  .icon-btn:hover{background:var(--gray-200)}
+  .icon-btn.danger:hover{background:var(--red-bg);color:var(--red)}
+  .count-link{font-weight:500;text-decoration:underline;text-underline-offset:3px}
+  .count-link:hover{color:var(--gray-500)}
+
+  /* ---------- Empty ---------- */
+  .empty{text-align:center;padding:72px 20px;background:var(--gray-100);margin-top:12px}
+  .empty h3{font-size:40px;margin-bottom:10px}
+  .empty p{color:var(--gray-500);margin-bottom:22px}
+
+  /* ---------- Footer ---------- */
+  footer{margin-top:auto;background:var(--black);color:var(--white)}
+  .footer-in{padding-top:36px;padding-bottom:36px;display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;font-size:13px}
+  .footer-in strong{font-family:"Anton",Impact,sans-serif;font-weight:400;font-size:20px;text-transform:uppercase;display:block;margin-bottom:6px}
+  .footer-in p{color:#9e9ea0;max-width:520px}
+  .footer-links{display:flex;gap:18px;align-items:flex-start}
+  .footer-links button{color:var(--white);font-size:13px;font-weight:500}
+  .footer-links button:hover{color:#9e9ea0}
+  main{padding-bottom:72px}
+
+  /* ---------- Dialog ---------- */
+  dialog{border:none;border-radius:24px;padding:0;width:min(580px,calc(100% - 32px));max-height:calc(100vh - 32px);margin:auto;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+  dialog::backdrop{background:rgba(17,17,17,.45)}
+  .modal{padding:36px 36px 30px;position:relative}
+  .modal h2{font-size:36px;margin-bottom:24px;padding-right:40px}
+  .modal-close{position:absolute;top:22px;right:22px}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .form-grid .full{grid-column:1/-1}
+  .field label{display:block;font-size:14px;font-weight:500;margin-bottom:6px}
+  .field label .req{color:var(--red)}
+  .input{width:100%;border:1px solid var(--gray-300);border-radius:8px;padding:13px 16px;background:var(--white);outline:none;transition:border-color .15s,box-shadow .15s}
+  .input:hover{border-color:var(--black)}
+  .input:focus{border-color:var(--black);box-shadow:0 0 0 1px var(--black)}
+  textarea.input{resize:vertical;min-height:84px}
+  select.input{appearance:none;-webkit-appearance:none;padding-right:40px;cursor:pointer;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23111' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 14px center}
+  .form-error{color:var(--red);font-size:14px;min-height:20px;margin-top:14px}
+  .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:10px}
+  .confirm-msg{color:var(--gray-700);margin-bottom:26px}
+
+  /* ---------- Toast ---------- */
+  #toast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,120px);background:var(--black);color:var(--white);padding:14px 26px;border-radius:var(--radius-pill);font-weight:500;font-size:15px;z-index:100;transition:transform .3s ease;max-width:calc(100% - 32px);text-align:center}
+  #toast.show{transform:translate(-50%,0)}
+
+  /* ---------- Responsive ---------- */
+  @media (max-width:1024px){
+    .stats{grid-template-columns:repeat(3,1fr)}
+  }
+  @media (max-width:760px){
+    .wrap{padding:0 16px}
+    .header-in{grid-template-columns:auto 1fr;height:56px}
+    .nav{justify-self:end}
+    .nav a{padding:16px 10px;font-size:15px}
+    .nav a::after{left:10px;right:10px;bottom:10px}
+    .header-cta{display:none}
+    .brand{font-size:22px}
+    .hero{padding-top:36px;padding-bottom:28px}
+    .hero-sub{font-size:16px}
+    .stats{grid-template-columns:repeat(2,1fr);gap:8px}
+    .stat{padding:16px}
+    .stat-num{font-size:38px}
+    .search{max-width:none;flex-basis:100%}
+    select.field-pill{flex:1 1 45%;min-width:0}
+    .table thead{display:none}
+    .table,.table tbody,.table tr,.table td{display:block;width:100%}
+    .table tr{border:1px solid var(--gray-200);border-radius:16px;padding:10px 16px;margin-bottom:12px}
+    .table tr.is-late{border-color:var(--red)}
+    .table tr.is-late td:first-child{box-shadow:none}
+    .table td{border:none;padding:8px 0;display:flex;justify-content:space-between;align-items:center;gap:16px;text-align:right}
+    .table td::before{content:attr(data-label);font-size:12px;font-weight:500;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;text-align:left;flex-shrink:0}
+    .table td.cell-main{display:block;text-align:left;padding-top:10px}
+    .table td.cell-main::before,.table td.actions::before{display:none}
+    .table td.actions{justify-content:flex-end;border-top:1px solid var(--gray-200);margin-top:6px;padding-top:8px}
+    .modal{padding:28px 20px 22px}
+    .modal h2{font-size:30px}
+    .form-grid{grid-template-columns:1fr}
+    .empty h3{font-size:32px}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap topbar-in">
+    <span id="todayLabel"></span>
+    <div class="topbar-links">
+      <button type="button" data-action="backup">Descargar respaldo</button>
+      <span aria-hidden="true">|</span>
+      <button type="button" data-action="restore">Restaurar respaldo</button>
+    </div>
+  </div>
+</div>
+
+<header class="header" id="header">
+  <div class="wrap header-in">
+    <a class="brand" href="#tareas" aria-label="Inicio">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>
+      </span>
+      <span class="display">Tareas</span>
+    </a>
+    <nav class="nav" aria-label="Secciones">
+      <a href="#tareas" data-tab="tareas">Tareas</a>
+      <a href="#responsables" data-tab="responsables">Responsables</a>
+    </nav>
+    <div class="header-cta">
+      <button class="btn btn-sm" type="button" data-action="new-task">+ Nueva tarea</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- ================= TAREAS ================= -->
+  <section id="view-tareas" class="view">
+    <div class="wrap hero">
+      <p class="kicker">Panel de asignaciones</p>
+      <h1 class="display hero-title">Asigna.<br>Avanza. Cumple.</h1>
+      <p class="hero-sub">Registra tareas, define responsables y controla cada plazo en un solo lugar.</p>
+      <div class="hero-actions">
+        <button class="btn" type="button" data-action="new-task">Nueva tarea</button>
+        <button class="btn btn-outline" type="button" data-action="export">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
+          Exportar a Excel
+        </button>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <div class="stats" id="stats"></div>
+
+      <div class="toolbar">
+        <div class="search">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input id="fSearch" class="field-pill" type="search" placeholder="Buscar tarea o responsable" aria-label="Buscar">
+        </div>
+        <select id="fEstado" class="field-pill" aria-label="Filtrar por estado">
+          <option value="">Todos los estados</option>
+          <option>Pendiente</option>
+          <option>En progreso</option>
+          <option>Completada</option>
+          <option>Cancelada</option>
+          <option value="__late">Vencidas</option>
+        </select>
+        <select id="fResp" class="field-pill" aria-label="Filtrar por responsable"></select>
+        <select id="fSort" class="field-pill" aria-label="Ordenar">
+          <option value="fin">Ordenar: fecha de fin</option>
+          <option value="inicio">Ordenar: fecha de inicio</option>
+          <option value="estado">Ordenar: estado</option>
+          <option value="resp">Ordenar: responsable</option>
+          <option value="reciente">Ordenar: más recientes</option>
+        </select>
+      </div>
+
+      <div class="result-line">
+        <span id="resultCount"></span>
+        <button type="button" class="link-btn" id="clearBtn" data-action="clear-filters" hidden>Limpiar filtros</button>
+      </div>
+
+      <table class="table" id="taskTable">
+        <thead>
+          <tr>
+            <th>Tarea</th>
+            <th>Responsable</th>
+            <th>Inicio</th>
+            <th>Fin</th>
+            <th>Estado</th>
+            <th class="actions"><span class="muted">Acciones</span></th>
+          </tr>
+        </thead>
+        <tbody id="taskBody"></tbody>
+      </table>
+      <div class="empty" id="taskEmpty" hidden></div>
+    </div>
+  </section>
+
+  <!-- ================= RESPONSABLES ================= -->
+  <section id="view-responsables" class="view" hidden>
+    <div class="wrap hero">
+      <p class="kicker">Mantenimiento</p>
+      <h1 class="display hero-title">Tu equipo.</h1>
+      <p class="hero-sub">Agrega, edita o retira a las personas que pueden recibir tareas.</p>
+      <div class="hero-actions">
+        <button class="btn" type="button" data-action="new-resp">Nuevo responsable</button>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <div class="toolbar">
+        <div class="search">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input id="rSearch" class="field-pill" type="search" placeholder="Buscar por nombre, cargo o correo" aria-label="Buscar responsable">
+        </div>
+      </div>
+
+      <div class="result-line"><span id="respCount"></span></div>
+
+      <table class="table" id="respTable">
+        <thead>
+          <tr>
+            <th>Responsable</th>
+            <th>Cargo / Área</th>
+            <th>Correo</th>
+            <th>Tareas</th>
+            <th class="actions"><span class="muted">Acciones</span></th>
+          </tr>
+        </thead>
+        <tbody id="respBody"></tbody>
+      </table>
+      <div class="empty" id="respEmpty" hidden></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap footer-in">
+    <div>
+      <strong>Gestor de tareas</strong>
+      <p>Los datos se guardan en este navegador. Descarga un respaldo periódicamente para no perder información o para llevarla a otro equipo.</p>
+    </div>
+    <div class="footer-links">
+      <button type="button" data-action="backup">Descargar respaldo</button>
+      <button type="button" data-action="restore">Restaurar respaldo</button>
+    </div>
+  </div>
+</footer>
+
+<!-- ================= MODAL TAREA ================= -->
+<dialog id="taskModal">
+  <form id="taskForm" class="modal" novalidate>
+    <button type="button" class="icon-btn modal-close" data-action="close-modal" aria-label="Cerrar">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <h2 class="display" id="taskModalTitle">Nueva tarea</h2>
+    <div class="form-grid">
+      <div class="field full">
+        <label for="tTitulo">Tarea <span class="req">*</span></label>
+        <input id="tTitulo" name="titulo" class="input" maxlength="150" placeholder="Ej. Consolidar reporte de matrícula">
+      </div>
+      <div class="field full">
+        <label for="tDesc">Descripción</label>
+        <textarea id="tDesc" name="descripcion" class="input" maxlength="1000" placeholder="Detalles, entregables u observaciones"></textarea>
+      </div>
+      <div class="field full">
+        <label for="tResp">Responsable <span class="req">*</span></label>
+        <select id="tResp" name="responsable" class="input"></select>
+      </div>
+      <div class="field">
+        <label for="tInicio">Fecha de inicio <span class="req">*</span></label>
+        <input id="tInicio" name="inicio" type="date" class="input">
+      </div>
+      <div class="field">
+        <label for="tFin">Fecha de fin <span class="req">*</span></label>
+        <input id="tFin" name="fin" type="date" class="input">
+      </div>
+      <div class="field full">
+        <label for="tEstado">Estado</label>
+        <select id="tEstado" name="estado" class="input">
+          <option>Pendiente</option>
+          <option>En progreso</option>
+          <option>Completada</option>
+          <option>Cancelada</option>
+        </select>
+      </div>
+    </div>
+    <p class="form-error" id="taskError" role="alert"></p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-outline" data-action="close-modal">Cancelar</button>
+      <button type="submit" class="btn">Guardar</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ================= MODAL RESPONSABLE ================= -->
+<dialog id="respModal">
+  <form id="respForm" class="modal" novalidate>
+    <button type="button" class="icon-btn modal-close" data-action="close-modal" aria-label="Cerrar">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <h2 class="display" id="respModalTitle">Nuevo responsable</h2>
+    <div class="form-grid">
+      <div class="field full">
+        <label for="rNombre">Nombre completo <span class="req">*</span></label>
+        <input id="rNombre" name="nombre" class="input" maxlength="120" placeholder="Ej. María Torres">
+      </div>
+      <div class="field">
+        <label for="rCargo">Cargo / Área</label>
+        <input id="rCargo" name="cargo" class="input" maxlength="120" placeholder="Ej. Analista de sistemas">
+      </div>
+      <div class="field">
+        <label for="rEmail">Correo</label>
+        <input id="rEmail" name="email" type="email" class="input" maxlength="150" placeholder="nombre@correo.com">
+      </div>
+    </div>
+    <p class="form-error" id="respError" role="alert"></p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-outline" data-action="close-modal">Cancelar</button>
+      <button type="submit" class="btn">Guardar</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ================= MODAL CONFIRMACIÓN ================= -->
+<dialog id="confirmModal">
+  <div class="modal">
+    <h2 class="display" id="confirmTitle">¿Eliminar?</h2>
+    <p class="confirm-msg" id="confirmMsg"></p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-outline" data-action="close-modal">Cancelar</button>
+      <button type="button" class="btn btn-danger" id="confirmOk">Eliminar</button>
+    </div>
+  </div>
+</dialog>
+
+<div id="toast" role="status" aria-live="polite"></div>
+<input type="file" id="restoreInput" accept=".json,application/json" hidden>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ================= Estado y almacenamiento ================= */
+  const STORE_KEY = "gestor_tareas_v1";
+  const ESTADOS = ["Pendiente", "En progreso", "Completada", "Cancelada"];
+  const ST_CLASS = { "Pendiente": "st-pend", "En progreso": "st-prog", "Completada": "st-done", "Cancelada": "st-canc" };
+
+  let state = { responsables: [], tareas: [] };
+  const filters = { q: "", estado: "", resp: "", sort: "fin" };
+  let respQuery = "";
+  let editingTask = null;
+  let editingResp = null;
+
+  const $ = (s, c) => (c || document).querySelector(s);
+  const $$ = (s, c) => Array.from((c || document).querySelectorAll(s));
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (raw) {
+        const d = JSON.parse(raw);
+        state.responsables = Array.isArray(d.responsables) ? d.responsables : [];
+        state.tareas = Array.isArray(d.tareas) ? d.tareas : [];
+      }
+    } catch (e) { /* almacenamiento no disponible */ }
+  }
+  function save() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
+    catch (e) { toast("No se pudo guardar en este navegador."); }
+  }
+
+  /* ================= Utilidades ================= */
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  function todayStr() {
+    const d = new Date();
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+  function fmt(s) {
+    if (!s) return "—";
+    const p = s.split("-");
+    return p[2] + "/" + p[1] + "/" + p[0];
+  }
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+  function initials(name) {
+    return String(name || "?").trim().split(/\s+/).slice(0, 2).map(w => w[0] || "").join("").toUpperCase() || "?";
+  }
+  const getResp = id => state.responsables.find(r => r.id === id);
+  const isLate = t => !!t.fin && t.fin < todayStr() && t.estado !== "Completada" && t.estado !== "Cancelada";
+  function duration(t) {
+    if (!t.inicio || !t.fin) return "";
+    const a = new Date(t.inicio + "T00:00:00"), b = new Date(t.fin + "T00:00:00");
+    return Math.round((b - a) / 86400000) + 1;
+  }
+  const sortedResp = () => state.responsables.slice().sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+
+  let toastTimer;
+  function toast(msg) {
+    const t = $("#toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove("show"), 2800);
+  }
+
+  function confirmDialog(title, msg, okLabel) {
+    return new Promise(resolve => {
+      const d = $("#confirmModal");
+      $("#confirmTitle").textContent = title;
+      $("#confirmMsg").textContent = msg;
+      $("#confirmOk").textContent = okLabel || "Eliminar";
+      d.returnValue = "";
+      const onClose = () => { d.removeEventListener("close", onClose); resolve(d.returnValue === "ok"); };
+      d.addEventListener("close", onClose);
+      $("#confirmOk").onclick = () => d.close("ok");
+      d.showModal();
+    });
+  }
+
+  const ICON_EDIT = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>';
+  const ICON_DEL = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>';
+
+  /* ================= Filtros ================= */
+  function filteredTasks() {
+    const q = filters.q.trim().toLowerCase();
+    const list = state.tareas.filter(t => {
+      if (filters.estado === "__late") { if (!isLate(t)) return false; }
+      else if (filters.estado && t.estado !== filters.estado) return false;
+      if (filters.resp && t.responsableId !== filters.resp) return false;
+      if (q) {
+        const r = getResp(t.responsableId);
+        const hay = (t.titulo + " " + (t.descripcion || "") + " " + (r ? r.nombre : "")).toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+    const order = { "En progreso": 0, "Pendiente": 1, "Completada": 2, "Cancelada": 3 };
+    const rn = t => (getResp(t.responsableId) || {}).nombre || "";
+    list.sort((a, b) => {
+      switch (filters.sort) {
+        case "inicio": return (a.inicio || "").localeCompare(b.inicio || "");
+        case "estado": return order[a.estado] - order[b.estado] || (a.fin || "").localeCompare(b.fin || "");
+        case "resp": return rn(a).localeCompare(rn(b), "es");
+        case "reciente": return (b.creada || 0) - (a.creada || 0);
+        default: return (a.fin || "9999").localeCompare(b.fin || "9999");
+      }
+    });
+    return list;
+  }
+  const filtersActive = () => !!(filters.q || filters.estado || filters.resp);
+
+  function clearFilters() {
+    filters.q = ""; filters.estado = ""; filters.resp = "";
+    $("#fSearch").value = ""; $("#fEstado").value = ""; $("#fResp").value = "";
+    renderTasksView();
+  }
+
+  /* ================= Render ================= */
+  function fillRespSelect(sel, placeholder, selected) {
+    sel.innerHTML = '<option value="">' + esc(placeholder) + "</option>" +
+      sortedResp().map(r => '<option value="' + esc(r.id) + '"' + (r.id === selected ? " selected" : "") + ">" + esc(r.nombre) + "</option>").join("");
+  }
+
+  function renderStats() {
+    const T = state.tareas;
+    const cards = [
+      { f: "", label: "Total", n: T.length, dot: "st-all" },
+      { f: "Pendiente", label: "Pendientes", n: T.filter(t => t.estado === "Pendiente").length, dot: "" },
+      { f: "En progreso", label: "En progreso", n: T.filter(t => t.estado === "En progreso").length, dot: "st-prog" },
+      { f: "Completada", label: "Completadas", n: T.filter(t => t.estado === "Completada").length, dot: "st-done" },
+      { f: "__late", label: "Vencidas", n: T.filter(isLate).length, dot: "st-late" }
+    ];
+    $("#stats").innerHTML = cards.map(c =>
+      '<button type="button" class="stat' + (filters.estado === c.f ? " active" : "") + '" data-action="stat" data-filter="' + c.f + '">' +
+      '<div class="stat-num">' + c.n + "</div>" +
+      '<div class="stat-label"><span class="dot ' + c.dot + '"></span>' + c.label + "</div></button>"
+    ).join("");
+  }
+
+  function taskRow(t) {
+    const r = getResp(t.responsableId);
+    const late = isLate(t);
+    const opts = ESTADOS.map(e => "<option" + (e === t.estado ? " selected" : "") + ">" + e + "</option>").join("");
+    return '<tr class="' + (late ? "is-late" : "") + '">' +
+      '<td class="cell-main" data-label="Tarea"><div class="t-title">' + esc(t.titulo) + "</div>" +
+        (t.descripcion ? '<div class="t-desc">' + esc(t.descripcion) + "</div>" : "") + "</td>" +
+      '<td data-label="Responsable">' + (r
+        ? '<div class="person"><span class="avatar">' + esc(initials(r.nombre)) + "</span><span>" + esc(r.nombre) + "</span></div>"
+        : '<span class="muted">Sin asignar</span>') + "</td>" +
+      '<td data-label="Inicio" class="date">' + fmt(t.inicio) + "</td>" +
+      '<td data-label="Fin" class="date"><span>' + fmt(t.fin) + (late ? '<span class="tag-late">Vencida</span>' : "") + "</span></td>" +
+      '<td data-label="Estado"><select class="status ' + ST_CLASS[t.estado] + '" data-id="' + esc(t.id) + '" aria-label="Estado de la tarea">' + opts + "</select></td>" +
+      '<td class="actions">' +
+        '<button type="button" class="icon-btn" data-action="edit-task" data-id="' + esc(t.id) + '" title="Editar" aria-label="Editar">' + ICON_EDIT + "</button>" +
+        '<button type="button" class="icon-btn danger" data-action="del-task" data-id="' + esc(t.id) + '" title="Eliminar" aria-label="Eliminar">' + ICON_DEL + "</button>" +
+      "</td></tr>";
+  }
+
+  function renderTasks() {
+    fillRespSelect($("#fResp"), "Todos los responsables", filters.resp);
+    const list = filteredTasks();
+    const total = state.tareas.length;
+    $("#resultCount").textContent = list.length === total
+      ? total + (total === 1 ? " tarea" : " tareas")
+      : "Mostrando " + list.length + " de " + total + " tareas";
+    $("#clearBtn").hidden = !filtersActive();
+
+    const table = $("#taskTable"), empty = $("#taskEmpty");
+    if (list.length) {
+      table.hidden = false; empty.hidden = true;
+      $("#taskBody").innerHTML = list.map(taskRow).join("");
+      return;
+    }
+    table.hidden = true; empty.hidden = false;
+    if (!state.responsables.length) {
+      empty.innerHTML = '<h3 class="display">Primero, tu equipo.</h3><p>Registra al menos un responsable para empezar a asignar tareas.</p>' +
+        '<button type="button" class="btn" data-action="go-resp">Registrar responsables</button>';
+    } else if (!total) {
+      empty.innerHTML = '<h3 class="display">Aún no hay tareas.</h3><p>Crea la primera asignación y empieza a darle seguimiento.</p>' +
+        '<button type="button" class="btn" data-action="new-task">Nueva tarea</button>';
+    } else {
+      empty.innerHTML = '<h3 class="display">Sin resultados.</h3><p>Ninguna tarea coincide con los filtros aplicados.</p>' +
+        '<button type="button" class="btn btn-outline" data-action="clear-filters">Limpiar filtros</button>';
+    }
+  }
+
+  function renderTasksView() { renderStats(); renderTasks(); }
+
+  function renderResp() {
+    const q = respQuery.trim().toLowerCase();
+    const list = sortedResp().filter(r => !q || (r.nombre + " " + (r.cargo || "") + " " + (r.email || "")).toLowerCase().includes(q));
+    const total = state.responsables.length;
+    $("#respCount").textContent = q ? "Mostrando " + list.length + " de " + total : total + (total === 1 ? " responsable" : " responsables");
+
+    const table = $("#respTable"), empty = $("#respEmpty");
+    if (!list.length) {
+      table.hidden = true; empty.hidden = false;
+      empty.innerHTML = total
+        ? '<h3 class="display">Sin resultados.</h3><p>Nadie coincide con esa búsqueda.</p>'
+        : '<h3 class="display">Arma tu equipo.</h3><p>Agrega a las personas que recibirán tareas.</p><button type="button" class="btn" data-action="new-resp">Nuevo responsable</button>';
+      return;
+    }
+    table.hidden = false; empty.hidden = true;
+    $("#respBody").innerHTML = list.map(r => {
+      const mine = state.tareas.filter(t => t.responsableId === r.id);
+      const active = mine.filter(t => t.estado === "Pendiente" || t.estado === "En progreso").length;
+      const tasksCell = mine.length
+        ? '<button type="button" class="count-link" data-action="view-resp-tasks" data-id="' + esc(r.id) + '">' + active + " activas · " + mine.length + " total</button>"
+        : '<span class="muted">Sin tareas</span>';
+      return "<tr>" +
+        '<td class="cell-main" data-label="Responsable"><div class="person"><span class="avatar">' + esc(initials(r.nombre)) + '</span><span class="t-title">' + esc(r.nombre) + "</span></div></td>" +
+        '<td data-label="Cargo / Área">' + (r.cargo ? esc(r.cargo) : '<span class="muted">—</span>') + "</td>" +
+        '<td data-label="Correo">' + (r.email ? esc(r.email) : '<span class="muted">—</span>') + "</td>" +
+        '<td data-label="Tareas">' + tasksCell + "</td>" +
+        '<td class="actions">' +
+          '<button type="button" class="icon-btn" data-action="edit-resp" data-id="' + esc(r.id) + '" title="Editar" aria-label="Editar">' + ICON_EDIT + "</button>" +
+          '<button type="button" class="icon-btn danger" data-action="del-resp" data-id="' + esc(r.id) + '" title="Eliminar" aria-label="Eliminar">' + ICON_DEL + "</button>" +
+        "</td></tr>";
+    }).join("");
+  }
+
+  function render() { renderTasksView(); renderResp(); }
+
+  /* ================= Pestañas ================= */
+  function showTab(name) {
+    if (name !== "tareas" && name !== "responsables") name = "tareas";
+    $$(".view").forEach(v => { v.hidden = v.id !== "view-" + name; });
+    $$(".nav a").forEach(a => a.classList.toggle("active", a.dataset.tab === name));
+    render();
+  }
+  window.addEventListener("hashchange", () => { showTab(location.hash.slice(1)); window.scrollTo(0, 0); });
+
+  /* ================= Tareas: CRUD ================= */
+  function openTask(id) {
+    if (!state.responsables.length) {
+      toast("Primero registra al menos un responsable.");
+      location.hash = "responsables";
+      return;
+    }
+    const t = id ? state.tareas.find(x => x.id === id) : null;
+    editingTask = t ? t.id : null;
+    const f = $("#taskForm"), el = f.elements;
+    f.reset();
+    $("#taskModalTitle").textContent = t ? "Editar tarea" : "Nueva tarea";
+    fillRespSelect(el.responsable, "Selecciona un responsable", t ? t.responsableId : (filters.resp || ""));
+    el.titulo.value = t ? t.titulo : "";
+    el.descripcion.value = t ? (t.descripcion || "") : "";
+    el.inicio.value = t ? t.inicio : todayStr();
+    el.fin.value = t ? t.fin : "";
+    el.estado.value = t ? t.estado : "Pendiente";
+    $("#taskError").textContent = "";
+    $("#taskModal").showModal();
+    el.titulo.focus();
+  }
+
+  $("#taskForm").addEventListener("submit", e => {
+    e.preventDefault();
+    const el = e.target.elements;
+    const data = {
+      titulo: el.titulo.value.trim(),
+      descripcion: el.descripcion.value.trim(),
+      responsableId: el.responsable.value,
+      inicio: el.inicio.value,
+      fin: el.fin.value,
+      estado: el.estado.value
+    };
+    const err = $("#taskError");
+    if (!data.titulo) { err.textContent = "Escribe el nombre de la tarea."; el.titulo.focus(); return; }
+    if (!data.responsableId) { err.textContent = "Selecciona un responsable."; el.responsable.focus(); return; }
+    if (!data.inicio || !data.fin) { err.textContent = "Indica la fecha de inicio y de fin."; return; }
+    if (data.fin < data.inicio) { err.textContent = "La fecha de fin no puede ser anterior a la de inicio."; el.fin.focus(); return; }
+
+    if (editingTask) {
+      Object.assign(state.tareas.find(x => x.id === editingTask), data);
+      toast("Tarea actualizada");
+    } else {
+      state.tareas.push(Object.assign({ id: uid(), creada: Date.now() }, data));
+      toast("Tarea creada");
+    }
+    save();
+    $("#taskModal").close();
+    render();
+  });
+
+  async function delTask(id) {
+    const t = state.tareas.find(x => x.id === id);
+    if (!t) return;
+    const ok = await confirmDialog("¿Eliminar tarea?", "Se eliminará “" + t.titulo + "”. Esta acción no se puede deshacer.");
+    if (!ok) return;
+    state.tareas = state.tareas.filter(x => x.id !== id);
+    save(); render(); toast("Tarea eliminada");
+  }
+
+  $("#taskBody").addEventListener("change", e => {
+    const s = e.target.closest("select.status");
+    if (!s) return;
+    const t = state.tareas.find(x => x.id === s.dataset.id);
+    if (!t) return;
+    t.estado = s.value;
+    save(); render(); toast("Estado: " + t.estado);
+  });
+
+  /* ================= Responsables: CRUD ================= */
+  function openResp(id) {
+    const r = id ? getResp(id) : null;
+    editingResp = r ? r.id : null;
+    const f = $("#respForm"), el = f.elements;
+    f.reset();
+    $("#respModalTitle").textContent = r ? "Editar responsable" : "Nuevo responsable";
+    el.nombre.value = r ? r.nombre : "";
+    el.cargo.value = r ? (r.cargo || "") : "";
+    el.email.value = r ? (r.email || "") : "";
+    $("#respError").textContent = "";
+    $("#respModal").showModal();
+    el.nombre.focus();
+  }
+
+  $("#respForm").addEventListener("submit", e => {
+    e.preventDefault();
+    const el = e.target.elements;
+    const data = { nombre: el.nombre.value.trim().replace(/\s+/g, " "), cargo: el.cargo.value.trim(), email: el.email.value.trim() };
+    const err = $("#respError");
+    if (!data.nombre) { err.textContent = "Escribe el nombre del responsable."; el.nombre.focus(); return; }
+    if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) { err.textContent = "El correo no tiene un formato válido."; el.email.focus(); return; }
+    const dup = state.responsables.some(r => r.id !== editingResp && r.nombre.toLowerCase() === data.nombre.toLowerCase());
+    if (dup) { err.textContent = "Ya existe un responsable con ese nombre."; el.nombre.focus(); return; }
+
+    if (editingResp) {
+      Object.assign(getResp(editingResp), data);
+      toast("Responsable actualizado");
+    } else {
+      state.responsables.push(Object.assign({ id: uid() }, data));
+      toast("Responsable registrado");
+    }
+    save();
+    $("#respModal").close();
+    render();
+  });
+
+  async function delResp(id) {
+    const r = getResp(id);
+    if (!r) return;
+    const n = state.tareas.filter(t => t.responsableId === id).length;
+    if (n) {
+      toast(r.nombre + " tiene " + n + (n === 1 ? " tarea asignada" : " tareas asignadas") + ". Reasígnalas antes de eliminar.");
+      return;
+    }
+    const ok = await confirmDialog("¿Eliminar responsable?", "Se eliminará a " + r.nombre + " de la lista de responsables.");
+    if (!ok) return;
+    state.responsables = state.responsables.filter(x => x.id !== id);
+    if (filters.resp === id) filters.resp = "";
+    save(); render(); toast("Responsable eliminado");
+  }
+
+  /* ================= Exportar a Excel ================= */
+  function exportExcel() {
+    const list = filteredTasks();
+    if (!list.length) { toast("No hay tareas para exportar."); return; }
+    if (typeof XLSX === "undefined") { toast("No se pudo cargar el módulo de Excel. Verifica tu conexión a internet."); return; }
+
+    const rows = list.map((t, i) => {
+      const r = getResp(t.responsableId) || {};
+      return {
+        "N°": i + 1,
+        "Tarea": t.titulo,
+        "Descripción": t.descripcion || "",
+        "Responsable": r.nombre || "Sin asignar",
+        "Cargo / Área": r.cargo || "",
+        "Correo": r.email || "",
+        "Fecha inicio": fmt(t.inicio),
+        "Fecha fin": fmt(t.fin),
+        "Duración (días)": duration(t),
+        "Estado": t.estado,
+        "¿Vencida?": isLate(t) ? "Sí" : "No"
+      };
+    });
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws["!cols"] = [6, 38, 46, 28, 24, 30, 13, 13, 15, 14, 11].map(w => ({ wch: w }));
+    ws["!autofilter"] = { ref: ws["!ref"] };
+    XLSX.utils.book_append_sheet(wb, ws, "Tareas");
+
+    const resumen = ESTADOS.map(e => ({ "Estado": e, "Cantidad": list.filter(t => t.estado === e).length }));
+    resumen.push({ "Estado": "Vencidas", "Cantidad": list.filter(isLate).length });
+    resumen.push({ "Estado": "Total", "Cantidad": list.length });
+    const ws2 = XLSX.utils.json_to_sheet(resumen);
+    ws2["!cols"] = [{ wch: 16 }, { wch: 10 }];
+    XLSX.utils.book_append_sheet(wb, ws2, "Resumen");
+
+    XLSX.writeFile(wb, "tareas_" + todayStr() + ".xlsx");
+    toast("Exportadas " + list.length + (list.length === 1 ? " tarea" : " tareas"));
+  }
+
+  /* ================= Respaldo ================= */
+  function backup() {
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "respaldo_tareas_" + todayStr() + ".json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+    toast("Respaldo descargado");
+  }
+
+  $("#restoreInput").addEventListener("change", async e => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const d = JSON.parse(await file.text());
+      if (!Array.isArray(d.responsables) || !Array.isArray(d.tareas)) throw new Error("formato");
+      const ok = await confirmDialog("¿Restaurar respaldo?",
+        "Se reemplazarán los datos actuales por " + d.tareas.length + " tareas y " + d.responsables.length + " responsables.", "Restaurar");
+      if (!ok) return;
+      state = { responsables: d.responsables, tareas: d.tareas };
+      save(); render(); toast("Respaldo restaurado");
+    } catch (err) {
+      toast("El archivo no es un respaldo válido.");
+    }
+  });
+
+  /* ================= Eventos globales ================= */
+  document.addEventListener("click", e => {
+    const a = e.target.closest("[data-action]");
+    if (!a) return;
+    const id = a.dataset.id;
+    switch (a.dataset.action) {
+      case "new-task": openTask(); break;
+      case "edit-task": openTask(id); break;
+      case "del-task": delTask(id); break;
+      case "new-resp": openResp(); break;
+      case "edit-resp": openResp(id); break;
+      case "del-resp": delResp(id); break;
+      case "export": exportExcel(); break;
+      case "go-resp": location.hash = "responsables"; break;
+      case "clear-filters": clearFilters(); break;
+      case "backup": backup(); break;
+      case "restore": $("#restoreInput").click(); break;
+      case "close-modal": a.closest("dialog").close(); break;
+      case "stat":
+        filters.estado = filters.estado === a.dataset.filter ? "" : a.dataset.filter;
+        $("#fEstado").value = filters.estado;
+        renderTasksView();
+        break;
+      case "view-resp-tasks":
+        filters.q = ""; filters.estado = ""; filters.resp = id;
+        $("#fSearch").value = ""; $("#fEstado").value = "";
+        location.hash = "tareas";
+        break;
+    }
+  });
+
+  // Cerrar modal al hacer clic fuera
+  $$("dialog").forEach(d => d.addEventListener("click", e => { if (e.target === d) d.close(); }));
+
+  $("#fSearch").addEventListener("input", e => { filters.q = e.target.value; renderTasks(); });
+  $("#fEstado").addEventListener("change", e => { filters.estado = e.target.value; renderTasksView(); });
+  $("#fResp").addEventListener("change", e => { filters.resp = e.target.value; renderTasks(); });
+  $("#fSort").addEventListener("change", e => { filters.sort = e.target.value; renderTasks(); });
+  $("#rSearch").addEventListener("input", e => { respQuery = e.target.value; renderResp(); });
+
+  window.addEventListener("scroll", () => $("#header").classList.toggle("scrolled", window.scrollY > 10), { passive: true });
+
+  /* ================= Inicio ================= */
+  const hoy = new Date().toLocaleDateString("es-PE", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  $("#todayLabel").textContent = "Hoy: " + hoy.charAt(0).toUpperCase() + hoy.slice(1);
+  load();
+  showTab(location.hash.slice(1));
+})();
+</script>
+</body>
+</html>
