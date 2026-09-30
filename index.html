@@ -44,6 +44,12 @@
   .topbar-links{display:flex;gap:10px;align-items:center}
   .topbar-links button{font-size:12px;font-weight:500}
   .topbar-links button:hover{color:var(--gray-500)}
+  .topbar-left{display:flex;gap:16px;align-items:center;min-width:0}
+  .sync{display:inline-flex;align-items:center;gap:6px;color:var(--gray-500);white-space:nowrap}
+  .sync-dot{width:7px;height:7px;border-radius:50%;background:var(--gray-300)}
+  .sync.ok .sync-dot{background:var(--green)}
+  .sync.saving .sync-dot,.sync.loading .sync-dot{background:var(--orange)}
+  .sync.error{color:var(--red)} .sync.error .sync-dot{background:var(--red)}
 
   /* ---------- Header ---------- */
   .header{position:sticky;top:0;z-index:20;background:var(--white);border-bottom:1px solid transparent;transition:border-color .2s}
@@ -174,6 +180,7 @@
   }
   @media (max-width:760px){
     .wrap{padding:0 16px}
+    #todayLabel,.topbar-backup{display:none}
     .header-in{grid-template-columns:auto 1fr;height:56px}
     .nav{justify-self:end}
     .nav a{padding:16px 10px;font-size:15px}
@@ -208,11 +215,16 @@
 
 <div class="topbar">
   <div class="wrap topbar-in">
-    <span id="todayLabel"></span>
+    <div class="topbar-left">
+      <span id="todayLabel"></span>
+      <span class="sync" id="syncLabel"><span class="sync-dot"></span><span id="syncText"></span></span>
+    </div>
     <div class="topbar-links">
-      <button type="button" data-action="backup">Descargar respaldo</button>
-      <span aria-hidden="true">|</span>
-      <button type="button" data-action="restore">Restaurar respaldo</button>
+      <button type="button" data-action="refresh" id="refreshBtn" hidden>Actualizar</button>
+      <span aria-hidden="true" class="topbar-backup" id="refreshSep" hidden>|</span>
+      <button type="button" class="topbar-backup" data-action="backup">Descargar respaldo</button>
+      <span aria-hidden="true" class="topbar-backup">|</span>
+      <button type="button" class="topbar-backup" data-action="restore">Restaurar respaldo</button>
     </div>
   </div>
 </div>
@@ -341,7 +353,7 @@
   <div class="wrap footer-in">
     <div>
       <strong>Gestor de tareas</strong>
-      <p>Los datos se guardan en este navegador. Descarga un respaldo periódicamente para no perder información o para llevarla a otro equipo.</p>
+      <p id="footerNote"></p>
     </div>
     <div class="footer-links">
       <button type="button" data-action="backup">Descargar respaldo</button>
@@ -444,8 +456,17 @@
 (function () {
   "use strict";
 
+  /* ================= CONFIGURACIÓN =================
+     Pega entre las comillas la URL de tu aplicación web de Google Apps Script
+     (termina en /exec). Si la dejas vacía, la página funciona en modo local
+     y los datos quedan solo en el navegador de cada equipo. */
+  const API_URL = "https://script.google.com/macros/s/AKfycbw-xMEKgPczujkCg2C2M_DYP_YTN9iMs-vyhdA-VYiYRYvd-t-OW5rogWkuKK6fUrnK/exec";
+
   /* ================= Estado y almacenamiento ================= */
-  const STORE_KEY = "gestor_tareas_v1";
+  const REMOTE = /^https:\/\/script\.google(usercontent)?\.com\/.+\/exec$/.test(API_URL.trim());
+  const STORE_KEY = "gestor_tareas_v1";           // datos del modo local
+  const CACHE_KEY = "gestor_tareas_cache_v1";     // copia local de lo que hay en Google Sheets
+  const MIGRATED_KEY = "gestor_tareas_migrado_v1";
   const ESTADOS = ["Pendiente", "En progreso", "Completada", "Cancelada"];
   const ST_CLASS = { "Pendiente": "st-pend", "En progreso": "st-prog", "Completada": "st-done", "Cancelada": "st-canc" };
 
@@ -454,23 +475,125 @@
   let respQuery = "";
   let editingTask = null;
   let editingResp = null;
+  let loading = REMOTE;
+  let pending = 0;
+  let queue = Promise.resolve();
+  let lastSync = null;
+  let migrateAsked = false;
 
   const $ = (s, c) => (c || document).querySelector(s);
   const $$ = (s, c) => Array.from((c || document).querySelectorAll(s));
 
+  function storageGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function storageSet(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } }
+
+  function normalize(d) {
+    d = d || {};
+    return {
+      responsables: (Array.isArray(d.responsables) ? d.responsables : []).filter(r => r && r.id).map(r => ({
+        id: String(r.id), nombre: String(r.nombre || ""), cargo: String(r.cargo || ""), email: String(r.email || "")
+      })),
+      tareas: (Array.isArray(d.tareas) ? d.tareas : []).filter(t => t && t.id).map(t => ({
+        id: String(t.id), titulo: String(t.titulo || ""), descripcion: String(t.descripcion || ""),
+        responsableId: String(t.responsableId || ""), inicio: String(t.inicio || ""), fin: String(t.fin || ""),
+        estado: ESTADOS.includes(t.estado) ? t.estado : "Pendiente", creada: Number(t.creada) || 0
+      }))
+    };
+  }
+  function parseState(raw) {
+    if (!raw) return null;
+    try { return normalize(JSON.parse(raw)); } catch (e) { return null; }
+  }
   function load() {
-    try {
-      const raw = localStorage.getItem(STORE_KEY);
-      if (raw) {
-        const d = JSON.parse(raw);
-        state.responsables = Array.isArray(d.responsables) ? d.responsables : [];
-        state.tareas = Array.isArray(d.tareas) ? d.tareas : [];
-      }
-    } catch (e) { /* almacenamiento no disponible */ }
+    const d = parseState(storageGet(REMOTE ? CACHE_KEY : STORE_KEY));
+    if (d) state = d;
   }
   function save() {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
-    catch (e) { toast("No se pudo guardar en este navegador."); }
+    const ok = storageSet(REMOTE ? CACHE_KEY : STORE_KEY, JSON.stringify(state));
+    if (!ok && !REMOTE) toast("No se pudo guardar en este navegador.");
+  }
+
+  /* ================= Sincronización con Google Sheets ================= */
+  async function api(body) {
+    const res = body
+      ? await fetch(API_URL, { method: "POST", body: JSON.stringify(body) })
+      : await fetch(API_URL + "?t=" + Date.now());
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const d = await res.json();
+    if (!d.ok) throw new Error(d.error || "Error del servidor");
+    return d;
+  }
+
+  function applyServer(d) { state = normalize(d); save(); render(); }
+
+  function setSync(s) {
+    const el = $("#syncLabel"), tx = $("#syncText");
+    el.className = "sync " + s;
+    tx.textContent = {
+      local: "Modo local · solo este equipo",
+      loading: "Cargando…",
+      saving: "Guardando…",
+      error: "Sin conexión con Google Sheets",
+      ok: "Sincronizado · " + (lastSync ? lastSync.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" }) : "")
+    }[s];
+  }
+
+  async function refresh(manual) {
+    if (!REMOTE) return;
+    if (pending || $$("dialog").some(d => d.open)) return;
+    if (manual) setSync("loading");
+    try {
+      const d = await api();
+      if (pending) return;               // hubo un cambio mientras se leía; se aplicará al guardar
+      lastSync = new Date();
+      loading = false;
+      applyServer(d);
+      setSync("ok");
+      if (manual) toast("Datos actualizados");
+      maybeMigrate();
+    } catch (e) {
+      loading = false;
+      render();
+      setSync("error");
+      if (manual) toast("No se pudo conectar con Google Sheets.");
+    }
+  }
+
+  // Aplica el cambio en pantalla de inmediato y lo envía a Google Sheets en orden.
+  function commit(body, msg) {
+    save();
+    render();
+    if (!REMOTE) { toast(msg); return; }
+    pending++;
+    setSync("saving");
+    queue = queue.then(() => api(body)).then(d => {
+      pending--;
+      lastSync = new Date();
+      if (!pending) { applyServer(d); setSync("ok"); }
+      toast(msg);
+    }).catch(e => {
+      pending--;
+      setSync("error");
+      toast("No se pudo guardar: " + e.message);
+      if (!pending) refresh();
+    });
+  }
+
+  // Si este equipo tenía datos del modo local y la hoja está vacía, ofrece subirlos.
+  async function maybeMigrate() {
+    if (migrateAsked || storageGet(MIGRATED_KEY)) return;
+    if (state.responsables.length || state.tareas.length) return;
+    const local = parseState(storageGet(STORE_KEY));
+    if (!local || (!local.responsables.length && !local.tareas.length)) return;
+    migrateAsked = true;
+    const ok = await confirmDialog("¿Subir datos de este equipo?",
+      "Encontramos " + local.responsables.length + " responsable(s) y " + local.tareas.length +
+      " tarea(s) guardados solo en este navegador. ¿Quieres subirlos a Google Sheets para verlos desde cualquier equipo?",
+      "Subir datos");
+    storageSet(MIGRATED_KEY, "1");
+    if (!ok) return;
+    state = local;
+    commit({ action: "restore", responsables: state.responsables, tareas: state.tareas }, "Datos subidos a Google Sheets");
   }
 
   /* ================= Utilidades ================= */
@@ -617,7 +740,9 @@
       return;
     }
     table.hidden = true; empty.hidden = false;
-    if (!state.responsables.length) {
+    if (loading) {
+      empty.innerHTML = '<h3 class="display">Cargando…</h3><p>Obteniendo datos de Google Sheets.</p>';
+    } else if (!state.responsables.length) {
       empty.innerHTML = '<h3 class="display">Primero, tu equipo.</h3><p>Registra al menos un responsable para empezar a asignar tareas.</p>' +
         '<button type="button" class="btn" data-action="go-resp">Registrar responsables</button>';
     } else if (!total) {
@@ -640,7 +765,9 @@
     const table = $("#respTable"), empty = $("#respEmpty");
     if (!list.length) {
       table.hidden = true; empty.hidden = false;
-      empty.innerHTML = total
+      empty.innerHTML = loading
+        ? '<h3 class="display">Cargando…</h3><p>Obteniendo datos de Google Sheets.</p>'
+        : total
         ? '<h3 class="display">Sin resultados.</h3><p>Nadie coincide con esa búsqueda.</p>'
         : '<h3 class="display">Arma tu equipo.</h3><p>Agrega a las personas que recibirán tareas.</p><button type="button" class="btn" data-action="new-resp">Nuevo responsable</button>';
       return;
@@ -677,6 +804,7 @@
 
   /* ================= Tareas: CRUD ================= */
   function openTask(id) {
+    if (loading) { toast("Cargando datos, espera un momento…"); return; }
     if (!state.responsables.length) {
       toast("Primero registra al menos un responsable.");
       location.hash = "responsables";
@@ -715,16 +843,12 @@
     if (!data.inicio || !data.fin) { err.textContent = "Indica la fecha de inicio y de fin."; return; }
     if (data.fin < data.inicio) { err.textContent = "La fecha de fin no puede ser anterior a la de inicio."; el.fin.focus(); return; }
 
-    if (editingTask) {
-      Object.assign(state.tareas.find(x => x.id === editingTask), data);
-      toast("Tarea actualizada");
-    } else {
-      state.tareas.push(Object.assign({ id: uid(), creada: Date.now() }, data));
-      toast("Tarea creada");
-    }
-    save();
+    const isEdit = !!editingTask;
+    let item = isEdit ? state.tareas.find(x => x.id === editingTask) : null;
+    if (item) Object.assign(item, data);
+    else { item = Object.assign({ id: uid(), creada: Date.now() }, data); state.tareas.push(item); }
     $("#taskModal").close();
-    render();
+    commit({ action: "saveTask", item: item }, isEdit ? "Tarea actualizada" : "Tarea creada");
   });
 
   async function delTask(id) {
@@ -733,7 +857,7 @@
     const ok = await confirmDialog("¿Eliminar tarea?", "Se eliminará “" + t.titulo + "”. Esta acción no se puede deshacer.");
     if (!ok) return;
     state.tareas = state.tareas.filter(x => x.id !== id);
-    save(); render(); toast("Tarea eliminada");
+    commit({ action: "deleteTask", id: id }, "Tarea eliminada");
   }
 
   $("#taskBody").addEventListener("change", e => {
@@ -742,11 +866,12 @@
     const t = state.tareas.find(x => x.id === s.dataset.id);
     if (!t) return;
     t.estado = s.value;
-    save(); render(); toast("Estado: " + t.estado);
+    commit({ action: "saveTask", item: t }, "Estado: " + t.estado);
   });
 
   /* ================= Responsables: CRUD ================= */
   function openResp(id) {
+    if (loading) { toast("Cargando datos, espera un momento…"); return; }
     const r = id ? getResp(id) : null;
     editingResp = r ? r.id : null;
     const f = $("#respForm"), el = f.elements;
@@ -770,16 +895,12 @@
     const dup = state.responsables.some(r => r.id !== editingResp && r.nombre.toLowerCase() === data.nombre.toLowerCase());
     if (dup) { err.textContent = "Ya existe un responsable con ese nombre."; el.nombre.focus(); return; }
 
-    if (editingResp) {
-      Object.assign(getResp(editingResp), data);
-      toast("Responsable actualizado");
-    } else {
-      state.responsables.push(Object.assign({ id: uid() }, data));
-      toast("Responsable registrado");
-    }
-    save();
+    const isEdit = !!editingResp;
+    let item = isEdit ? getResp(editingResp) : null;
+    if (item) Object.assign(item, data);
+    else { item = Object.assign({ id: uid() }, data); state.responsables.push(item); }
     $("#respModal").close();
-    render();
+    commit({ action: "saveResp", item: item }, isEdit ? "Responsable actualizado" : "Responsable registrado");
   });
 
   async function delResp(id) {
@@ -794,7 +915,7 @@
     if (!ok) return;
     state.responsables = state.responsables.filter(x => x.id !== id);
     if (filters.resp === id) filters.resp = "";
-    save(); render(); toast("Responsable eliminado");
+    commit({ action: "deleteResp", id: id }, "Responsable eliminado");
   }
 
   /* ================= Exportar a Excel ================= */
@@ -860,8 +981,8 @@
       const ok = await confirmDialog("¿Restaurar respaldo?",
         "Se reemplazarán los datos actuales por " + d.tareas.length + " tareas y " + d.responsables.length + " responsables.", "Restaurar");
       if (!ok) return;
-      state = { responsables: d.responsables, tareas: d.tareas };
-      save(); render(); toast("Respaldo restaurado");
+      state = normalize(d);
+      commit({ action: "restore", responsables: state.responsables, tareas: state.tareas }, "Respaldo restaurado");
     } catch (err) {
       toast("El archivo no es un respaldo válido.");
     }
@@ -883,6 +1004,7 @@
       case "go-resp": location.hash = "responsables"; break;
       case "clear-filters": clearFilters(); break;
       case "backup": backup(); break;
+      case "refresh": refresh(true); break;
       case "restore": $("#restoreInput").click(); break;
       case "close-modal": a.closest("dialog").close(); break;
       case "stat":
@@ -913,7 +1035,22 @@
   const hoy = new Date().toLocaleDateString("es-PE", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   $("#todayLabel").textContent = "Hoy: " + hoy.charAt(0).toUpperCase() + hoy.slice(1);
   load();
+  if (REMOTE && (state.responsables.length || state.tareas.length)) loading = false; // muestra la copia local mientras llega lo último
+  $("#refreshBtn").hidden = !REMOTE;
+  $("#refreshSep").hidden = !REMOTE;
+  $("#footerNote").textContent = REMOTE
+    ? "Los datos se guardan en Google Sheets y se actualizan solos cada 30 segundos, así que puedes verlos desde cualquier equipo. También puedes descargar un respaldo cuando quieras."
+    : "Modo local: los datos se guardan solo en este navegador. Conecta Google Sheets para compartirlos entre equipos, y descarga un respaldo cada cierto tiempo.";
   showTab(location.hash.slice(1));
+
+  if (REMOTE) {
+    setSync("loading");
+    refresh();
+    setInterval(() => { if (document.visibilityState === "visible") refresh(); }, 30000);
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refresh(); });
+  } else {
+    setSync("local");
+  }
 })();
 </script>
 </body>
